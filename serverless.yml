@@ -35,48 +35,62 @@ resources:
           Ref: WebAppS3Bucket
         PolicyDocument:
           Statement:
-            - Sid: PublicReadGetObject
+            - Sid: 'AllowCloudFrontAccessIdentity'
               Effect: Allow
-              Principal: "*"
-              Action:
-              - s3:GetObject
+              Action: s3:GetObject
               Resource: arn:aws:s3:::${self:custom.s3Bucket}/*
+              Principal:
+                AWS:
+                  Fn::Join:
+                    - ' '
+                    - - 'arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity'
+                      - !Ref OriginAccessIdentity
+
+    OriginAccessIdentity:
+      Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+      Properties:
+        CloudFrontOriginAccessIdentityConfig:
+          Comment: Access identity between CloudFront and S3 bucket
+
     WebAppCloudFrontDistribution:
       Type: AWS::CloudFront::Distribution
       Properties:
         DistributionConfig:
           Origins:
             - DomainName: ${self:custom.s3Bucket}.s3.amazonaws.com
-              Id: WebApp
-              CustomOriginConfig:
-                HTTPPort: 80
-                HTTPSPort: 443
-                OriginProtocolPolicy: https-only
-          Enabled: 'true'
+              Id: myS3Origin
+              S3OriginConfig:
+                OriginAccessIdentity: !Sub origin-access-identity/cloudfront/${OriginAccessIdentity}
+          Enabled: true
+          IPV6Enabled: true
+          HttpVersion: http2
           DefaultRootObject: index.html
           CustomErrorResponses:
             - ErrorCode: 404
               ResponseCode: 200
               ResponsePagePath: /index.html
           DefaultCacheBehavior:
-            AllowedMethods:
-              - DELETE
-              - GET
-              - HEAD
-              - OPTIONS
-              - PATCH
-              - POST
-              - PUT
-            TargetOriginId: WebApp
+            AllowedMethods: [ 'GET', 'HEAD', 'OPTIONS' ]
+            CachedMethods: [ 'GET', 'HEAD', 'OPTIONS' ]
             ForwardedValues:
-              QueryString: 'false'
+              Headers:
+                - Access-Control-Request-Headers
+                - Access-Control-Request-Method
+                - Origin
+                - Authorization
+              QueryString: false
               Cookies:
                 Forward: none
+            TargetOriginId: myS3Origin
             ViewerProtocolPolicy: redirect-to-https
+            Compress: true
+            DefaultTTL: 0
           ViewerCertificate:
             CloudFrontDefaultCertificate: 'true'
-
   Outputs:
+    WebAppS3BucketOutput:
+      Value:
+        'Ref': WebAppS3Bucket
     WebAppCloudFrontDistributionOutput:
       Value:
         'Fn::GetAtt': [ WebAppCloudFrontDistribution, DomainName ]
